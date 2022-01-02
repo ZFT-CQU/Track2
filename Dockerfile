@@ -5,6 +5,9 @@ RUN groupadd -r algorithm && useradd -m --no-log-init -r -g algorithm algorithm
 RUN mkdir -p /opt/algorithm /input /output \
     && chown algorithm:algorithm /opt/algorithm /input /output
 
+RUN apt-get update 
+RUN apt-get install ffmpeg libsm6 libxext6  -y
+
 USER algorithm
 
 WORKDIR /opt/algorithm
@@ -36,5 +39,3 @@ LABEL nl.diagnijmegen.rse.algorithm.hardware.memory=40G
 LABEL nl.diagnijmegen.rse.algorithm.hardware.gpu.count=1
 LABEL nl.diagnijmegen.rse.algorithm.hardware.gpu.cuda_compute_capability=
 LABEL nl.diagnijmegen.rse.algorithm.hardware.gpu.memory=11G
-
-
