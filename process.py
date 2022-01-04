@@ -52,7 +52,7 @@ class Nodulegeneration(SegmentationAlgorithm):
         if use_cuda:
             gpu = 0
             self.generator = self.generator.cuda(gpu)
-
+        self.generator.eval()
         total_time = time.time()
         if len(input_image.shape) == 2:
             input_image = np.expand_dims(input_image, 0)
