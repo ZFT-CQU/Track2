@@ -15,6 +15,7 @@ import torch
 from torch import autograd
 from WGAN import Generator
 import scipy.ndimage as ndi
+from skimage import morphology
 
 # This parameter adapts the paths between local execution and execution in docker. You can use this flag to switch between these two modes.
 # For building your docker, set this parameter to True. If False, it will run process.py locally for test purposes.
@@ -27,12 +28,12 @@ class Nodulegeneration(SegmentationAlgorithm):
             UniqueImagesValidator(),
             UniquePathIndicesValidator(),
         )),
-                         input_path=Path("/input/")
-                         if execute_in_docker else Path("./test/"),
-                         output_path=Path("/output/")
-                         if execute_in_docker else Path("./output/"),
-                         output_file=Path("/output/results.json") if
-                         execute_in_docker else Path("./output/results.json"))
+            input_path=Path("/input/")
+            if execute_in_docker else Path("./test/"),
+            output_path=Path("/output/")
+            if execute_in_docker else Path("./output/"),
+            output_file=Path("/output/results.json") if
+            execute_in_docker else Path("./output/results.json"))
 
         # load nodules.json for location
         with open("/input/nodules.json"
@@ -79,12 +80,15 @@ class Nodulegeneration(SegmentationAlgorithm):
                 while True:
                     for _ in range(10):
                         # use WGAN to generate samples
-                        fixed_noise_128 = torch.randn(2, 128)
+                        fixed_noise_128 = torch.randn(1, 128)
                         if use_cuda:
                             fixed_noise_128 = fixed_noise_128.cuda(gpu)
                         noisev = autograd.Variable(fixed_noise_128)
                         samples = self.generator(noisev)
                         nodule = samples.cpu().data.numpy()[0, 0]
+                        # denoise
+                        mask = morphology.remove_small_objects(nodule > 10.0, min_size=50, connectivity=1)
+                        nodule[mask == False] = 0.0
                         diameter = nodule_diameter(nodule)
                         if diameter >= (required_diameter / times):
                             flag = True
@@ -109,7 +113,7 @@ class Nodulegeneration(SegmentationAlgorithm):
                                        x_min, x_max)
                 result[x_min:x_max, y_min:y_max] = np.mean(np.array(
                     [crop * 255, result[x_min:x_max, y_min:y_max]]),
-                                                           axis=0)
+                    axis=0)
                 cxr_img_scaled = result.copy()
 
             nodule_images[j, :, :] = result
