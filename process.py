@@ -6,7 +6,7 @@ from evalutils.validators import (
     UniquePathIndicesValidator,
     UniqueImagesValidator,
 )
-from utils import convert_to_range_0_1, contrast_matching, poisson_blend, nodule_diameter
+from utils import convert_to_range_0_1, contrast_matching, poisson_blend, nodule_size
 import json
 from pathlib import Path
 import time
@@ -74,7 +74,9 @@ class Nodulegeneration(SegmentationAlgorithm):
                 x_min, y_min, x_max, y_max = int(x_min), int(y_min), int(
                     x_max), int(y_max)
 
-                required_diameter = max(x_max - x_min, y_max - y_min)
+                required_width = x_max - x_min
+                required_height = y_max - y_min
+                
                 times = 2.0
                 flag = False
                 while True:
@@ -89,14 +91,14 @@ class Nodulegeneration(SegmentationAlgorithm):
                         # denoise
                         mask = morphology.remove_small_objects(nodule > 10.0, min_size=50, connectivity=1)
                         nodule[mask == False] = 0.0
-                        diameter = nodule_diameter(nodule)
-                        if diameter >= (required_diameter / times):
+                        nodule_width, nodule_height = nodule_size(nodule)
+                        if (nodule_width >= required_width/times) and (nodule_height >= required_height/times):
                             flag = True
                             break
                     times = times * 2.0
                     if flag:
                         break
-                scaling_factor = required_diameter / diameter
+                scaling_factor = [required_width / nodule_width, required_height / nodule_height]
                 nodule = ndi.interpolation.zoom(nodule,
                                                 scaling_factor,
                                                 mode='nearest',
