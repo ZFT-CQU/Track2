@@ -5,16 +5,18 @@ import cv2
 CORRECTION = 255
 
 
-def nodule_diameter(nodule):
+def nodule_size(nodule):
     tmp = nodule.copy()
     tmp[tmp != 0] = 255
     tmp = tmp.astype(int)
     properties = regionprops(tmp)
-    diameter = 0.0
+    width = 0.0
+    height = 0.0
     for p in properties:
         min_row, min_col, max_row, max_col = p.bbox
-        diameter = max(max_row - min_row, max_col - min_col)
-    return diameter
+        width = max_row - min_row
+        height = max_col - min_col
+    return width, height
 
 
 def convert_to_range_0_1(image_data):
