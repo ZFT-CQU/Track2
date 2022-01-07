@@ -53,7 +53,7 @@ def contrast_matching(nodule_2d, lung_photo):
     # determine contrast
     c = np.log(it / ib)
 
-    return max(0.4, c)
+    return max(0.3, c)
 
 
 def poisson_blend(nodule, lung_photo, x0, x1, y0, y1):

@@ -89,7 +89,7 @@ class Nodulegeneration(SegmentationAlgorithm):
                         samples = self.generator(noisev)
                         nodule = samples.cpu().data.numpy()[0, 0]
                         # denoise
-                        mask = morphology.remove_small_objects(nodule > 10.0, min_size=50, connectivity=1)
+                        mask = morphology.remove_small_objects(nodule > 2.0, min_size=50, connectivity=1)
                         nodule[mask == False] = 0.0
                         nodule_width, nodule_height = nodule_size(nodule)
                         if (nodule_width >= required_width/times) and (nodule_height >= required_height/times):
