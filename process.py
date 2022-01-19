@@ -42,7 +42,7 @@ class Nodulegeneration(SegmentationAlgorithm):
 
         self.generator = Generator()
         self.generator.load_state_dict(
-            torch.load('checkpoint/WGAN.pth')['model'])
+            torch.load('checkpoint/WGAN-A.pth')['model'])
 
     def predict(self, *, input_image: SimpleITK.Image) -> SimpleITK.Image:
         input_image = SimpleITK.GetArrayFromImage(input_image)
