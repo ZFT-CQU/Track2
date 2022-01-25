@@ -6,16 +6,14 @@ from evalutils.validators import (
     UniquePathIndicesValidator,
     UniqueImagesValidator,
 )
-from utils import convert_to_range_0_1, contrast_matching, poisson_blend, nodule_size
+from utils import convert_to_range_0_1, process_CT_patches, contrast_matching, poisson_blend, nodule_size
 import json
 from pathlib import Path
 import time
-
-import torch
-from torch import autograd
-from WGAN import Generator
+import pandas as pd
+import random
+import os
 import scipy.ndimage as ndi
-from skimage import morphology
 
 # This parameter adapts the paths between local execution and execution in docker. You can use this flag to switch between these two modes.
 # For building your docker, set this parameter to True. If False, it will run process.py locally for test purposes.
@@ -40,24 +38,17 @@ class Nodulegeneration(SegmentationAlgorithm):
                   if execute_in_docker else "test/nodules.json") as f:
             self.data = json.load(f)
 
-        self.generator = Generator()
-        self.generator.load_state_dict(
-            torch.load('checkpoint/WGAN-A.pth')['model'])
-
     def predict(self, *, input_image: SimpleITK.Image) -> SimpleITK.Image:
-        input_image = SimpleITK.GetArrayFromImage(input_image)
-        print(input_image.shape)
 
-        use_cuda = torch.cuda.is_available()
-        if use_cuda:
-            gpu = 0
-            self.generator = self.generator.cuda(gpu)
-        self.generator.eval()
+        input_image = SimpleITK.GetArrayFromImage(input_image)
         total_time = time.time()
         if len(input_image.shape) == 2:
             input_image = np.expand_dims(input_image, 0)
 
+        pd_data = pd.read_csv('/opt/algorithm/ct_nodules.csv' if execute_in_docker else "ct_nodules.csv")
+
         nodule_images = np.zeros(input_image.shape)
+
         for j in range(len(input_image)):
             cxr_img_scaled = input_image[j, :, :]
             nodule_data = [
@@ -67,52 +58,38 @@ class Nodulegeneration(SegmentationAlgorithm):
             for nodule in nodule_data:
                 cxr_img_scaled = convert_to_range_0_1(cxr_img_scaled)
                 boxes = nodule['corners']
-                # print(boxes)
-                y_min, x_min, y_max, x_max = boxes[2][0], boxes[2][1], boxes[
-                    0][0], boxes[0][1]
+                # no spacing info in GC with 3D version
+                # x_min, y_min, x_max, y_max = boxes[2][0]/spacing_x, boxes[2][1]/spacing_y, boxes[0][0]/spacing_x, boxes[0][1]/spacing_y
+                y_min, x_min, y_max, x_max = boxes[2][0], boxes[2][1], boxes[0][0], boxes[0][1]
 
-                x_min, y_min, x_max, y_max = int(x_min), int(y_min), int(
-                    x_max), int(y_max)
+                x_min, y_min, x_max, y_max = int(x_min), int(y_min), int(x_max), int(y_max)
 
+                # ------------------------------ Randomly choose ct patch and scale it according to bounding box size.
                 required_width = x_max - x_min
                 required_height = y_max - y_min
-                
-                times = 4.0
-                flag = False
-                while True:
-                    for _ in range(10):
-                        # use WGAN to generate samples
-                        fixed_noise_128 = torch.randn(1, 128)
-                        if use_cuda:
-                            fixed_noise_128 = fixed_noise_128.cuda(gpu)
-                        noisev = autograd.Variable(fixed_noise_128)
-                        samples = self.generator(noisev)
-                        nodule = samples.cpu().data.numpy()[0, 0]
-                        # denoise
-                        mask = morphology.remove_small_objects(nodule > 4.0, min_size=25, connectivity=1)
-                        nodule[mask == False] = 0.0
-                        nodule_width, nodule_height = nodule_size(nodule)
-                        if (nodule_width >= required_width/times) and (nodule_height >= required_height/times):
-                            flag = True
-                            break
-                    times = times * 2.0
-                    if flag:
-                        break
+                required_diameter = max(required_width, required_height)
+                ct_names = pd_data[pd_data['diameter'] > int((required_diameter / 5))]['img_name'].values
+                if len(ct_names) < 1:
+                    ct_names = pd_data[pd_data['diameter'] > int((required_diameter / 10))]['img_name'].values
+
+                index_ct = random.randint(0, len(ct_names) - 1)
+                path_nodule = '/opt/algorithm/nodule_patches/' if execute_in_docker else 'nodule_patches/'
+                X_ct_2d_resampled, diameter = process_CT_patches(
+                    os.path.join(path_nodule, ct_names[index_ct]),
+                    os.path.join(path_nodule,  ct_names[index_ct].replace('dcm', 'seg')), required_diameter)
+                # scale 2D nodule image to satisfy the required width and height
+                nodule = convert_to_range_0_1(X_ct_2d_resampled)
+                nodule_width, nodule_height = nodule_size(nodule)
                 scaling_factor = [required_width / nodule_width, required_height / nodule_height]
-                nodule = ndi.interpolation.zoom(nodule,
-                                                scaling_factor,
-                                                mode='nearest',
-                                                order=1)
+                nodule = ndi.interpolation.zoom(nodule, scaling_factor, mode='nearest', order=1)
                 crop = cxr_img_scaled[x_min:x_max, y_min:y_max].copy()
                 nodule = convert_to_range_0_1(nodule)
 
                 # contrast matching:
-                c = contrast_matching(nodule, cxr_img_scaled[x_min:x_max,
-                                                             y_min:y_max])
+                c = contrast_matching(nodule, cxr_img_scaled[x_min:x_max, y_min:y_max])
                 nodule = nodule * c
 
-                result = poisson_blend(nodule, cxr_img_scaled, y_min, y_max,
-                                       x_min, x_max)
+                result = poisson_blend(nodule, cxr_img_scaled, y_min, y_max, x_min, x_max)
                 result[x_min:x_max, y_min:y_max] = np.mean(np.array(
                     [crop * 255, result[x_min:x_max, y_min:y_max]]),
                     axis=0)
